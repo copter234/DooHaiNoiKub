@@ -1,0 +1,211 @@
+  #include <EEPROM.h>
+#define SAMPLE_TIME 2000
+//encoder 0
+#define encoder0PinA 2
+#define encoder0PinB 3
+volatile int encoder0Count = 0;
+volatile float angle0 = 0;
+//EEPROM
+int address = 0;
+int Distance = 0;
+int EnablePin =8;
+int stepPin =9;
+int Ms1=10;
+int Ms2=11;
+int dirPin=12;
+float cartesianA[3] = {0}; // X,Y,Z
+float cartesianB[3] = {0};
+float sphericalA[3] = {0}; // R,X,Y
+float sphericalB[3] = {0};
+int l,x,y,y1;
+char measureBuf[6]; // enough space for five digits plus a zero byte
+int offset;
+float temp;
+int angle;
+float constantAngle = 0.45;
+char userInput;
+
+//Encoder 0
+void doEncoder0A(){  // interrupt 0 function
+  if (digitalRead(encoder0PinA) == HIGH) {  // look for a low-to-high on channel A
+    if (digitalRead(encoder0PinB) == LOW) { // check channel B to see which way encoder is turning
+      encoder0Count = encoder0Count + 1;
+    } 
+    else {
+      encoder0Count = encoder0Count - 1;
+    }
+  }
+  else {                                     // must be a high-to-low edge on channel A
+    if (digitalRead(encoder0PinB) == HIGH) { // check channel B to see which way encoder is turning  
+      encoder0Count = encoder0Count + 1;
+    } 
+    else {
+      encoder0Count = encoder0Count - 1;
+    }
+  }
+  angle0 =(45*1000/57296)- (0.3*1000/57296)*encoder0Count;  // unit: radian
+}
+
+void doEncoder0B(){  // interrupt 1 function
+  if (digitalRead(encoder0PinB) == HIGH) {   // look for a low-to-high on channel B
+    if (digitalRead(encoder0PinA) == HIGH) { // check channel A to see which way encoder is turning
+      encoder0Count = encoder0Count + 1;
+    } 
+    else {
+      encoder0Count = encoder0Count - 1;
+    }
+  }
+  else {                                    // must be a high-to-low edge on on channel B
+    if (digitalRead(encoder0PinA) == LOW) { // check channel B to see which way encoder is turning
+      encoder0Count = encoder0Count + 1;
+    } 
+    else {
+      encoder0Count = encoder0Count - 1;
+    }
+  }
+  
+  angle0 = (150*1000/57296)-(0.3*1000/57296)*encoder0Count;  // unit: radian 0.3deg to rad
+}
+
+
+
+void setup()
+{  pinMode(EnablePin, OUTPUT);     
+  pinMode(stepPin, OUTPUT);
+  pinMode(Ms1, OUTPUT);
+  pinMode(Ms2, OUTPUT);
+  pinMode(dirPin,OUTPUT);
+  digitalWrite(8, LOW); //Enable
+  digitalWrite(9, LOW); //step
+  digitalWrite(10, HIGH); //ms1
+  digitalWrite(11,HIGH); //ms2
+  digitalWrite(12,HIGH);//directionPin
+
+    Serial.begin(9600);
+  while (!Serial);
+ // Serial.println("s");
+  pinMode(encoder0PinA, INPUT); 
+  pinMode(encoder0PinB, INPUT); 
+  delay(5000);
+  attachInterrupt(0, doEncoder0A, CHANGE);  
+  attachInterrupt(1, doEncoder0B, CHANGE);
+}
+
+void loop()
+{
+    Serial.println("Wait 3 seconds...");
+    delay(3000);
+    Serial.println("Start Horizontal Scanning");
+    Serial.print("g");
+     delay(3000);
+    angle = 100;
+      float cartesian[angle][1] = {}; 
+      float spherical[angle][1] = {};
+       
+      for (y = 0; y < angle; y++) {
+        //spherical[y][1] = (y) * (1 / 63.673989);  // 0.9 theta
+        //spherical[y][2] = 90 * (1 / 57.296); //phe
+         spherical[y][1] = (y) * (0.225 * (1000.0 / 57296.0));
+      }
+   y=angle;
+      Serial.println(y);
+      encoder0Count=0;
+      while (y > 0) {
+      //Serial.println("enter y >=0 loop");
+        if ((Serial.available() > 0)) {
+          char ch = Serial.read();
+          //Serial.println("read");
+          if (ch == '\r') {
+            measureBuf[offset] = '\0';
+            if ((measureBuf[0] > 47) && (measureBuf[0] < 58) && (measureBuf[1] > 47) && (measureBuf[1] < 58) && (measureBuf[2] > 47) && (measureBuf[2] < 58) && (measureBuf[3] > 47) && (measureBuf[3] < 58) && (measureBuf[4] > 47) && (measureBuf[4] < 58)) {
+              Serial.println(measureBuf);
+              for (x = 0; x <1; x++) {
+                digitalWrite(stepPin, HIGH);
+                delayMicroseconds(1200);
+                digitalWrite(stepPin, LOW);
+                delayMicroseconds(1200);
+              }
+              delay(300);
+              temp = atof (measureBuf);//แปลง
+              Serial.println(temp * 0.001, 8);
+              spherical[angle-y][0] = (temp * 0.0010)-(0.05);
+              Serial.println(spherical[angle-y][0],8);
+              Serial.print("cnt0: ");
+              Serial.print(encoder0Count, DEC); 
+              Serial.println(";");
+              //Serial.println(angle0);
+              Serial.println(spherical[angle-y][1],8);
+              cartesian[angle-y][0] = (spherical[angle-y][0]) * cos(spherical[angle-y][1]); //x=rsintheta cos phe
+              cartesian[angle-y][1] = (spherical[angle-y][0]) * sin(spherical[angle-y][1]);
+              Serial.println(cartesian[angle-y][0],8);
+              Serial.println(cartesian[angle-y][1],8);
+              y--;
+            }
+            } 
+           
+          else if (ch == '\n') {
+            offset = 0; 
+          }
+          else if (offset < 5)
+            measureBuf[offset++] = ch;
+               }    
+            }
+                Serial.println("Finish Loop");
+               digitalWrite(EnablePin, HIGH);
+               Serial.println("Enable");
+      delay(100);
+      //---------------------------Rotate Back------------------------
+      
+  
+      
+      Serial.println("----------------------RESULT--------------------");
+      Serial.println("");
+      //--------------------calculate-------------------
+     
+   
+      for (y = 0; y < angle; y++) {
+        Serial.println(cartesian[y][0],8);
+         //EEPROM.put(address,cartesian[angle-y][0]);
+        
+        //address=address+4;
+      //delay(300);
+      }
+      Serial.println(" ");
+      for (y = 0; y < angle; y++) {
+        Serial.println(cartesian[y][1],8);
+        //EEPROM.put(address,cartesian[angle-y][1]);
+      //delay(300);  
+        //address=address+4;
+      }
+      /*Serial.println(" check");
+      for (y = 0; y < angle; y++) {
+        //Serial.println(cartesian[y][2],5);
+        Serial.println("0.00");
+      }*/
+      //Serial.println(" ");
+      //Serial.print("address:");
+      //Serial.println(address);
+      //--------------------calculate-------------------
+      
+      Serial.print("s");
+      Serial.println("Rotate back");
+      digitalWrite(12,LOW); //dirPin
+      digitalWrite(8,LOW);//EnablePin
+      for(y=0;y<angle;y++){
+        for (x = 0; x <1; x++) {
+                digitalWrite(stepPin, HIGH);
+                delayMicroseconds(2400);
+                digitalWrite(stepPin, LOW);
+                delayMicroseconds(2400);
+              }
+              delay(300);
+        }
+        digitalWrite(EnablePin, HIGH);
+      delay(100);
+      
+      
+  
+     
+  }  
+  
+ 
